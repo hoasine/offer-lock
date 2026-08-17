@@ -118,6 +118,7 @@ Deploy contract first, then update `NEXT_PUBLIC_CONTRACT_ADDRESS`.
 ## Links
 
 - Local app: [http://localhost:3005](http://localhost:3005)
+- GitHub: [https://github.com/hoasine/offer-lock](https://github.com/hoasine/offer-lock)
 - Studionet contract: `0xDE1DacB0dd61a8Ad37bE71D18E87DBE31da37dda`
 
 ## Disclaimer

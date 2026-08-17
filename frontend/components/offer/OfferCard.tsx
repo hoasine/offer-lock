@@ -25,7 +25,6 @@ export function OfferCard({ offer }: { offer: OfferView }) {
   const isIntern = me && offer.intern.toLowerCase() === me;
   const now = Math.floor(Date.now() / 1000);
   const writes = useOfferWrites();
-  const aiBusy = busy || writes.judge.isPending || writes.judgeAppeal.isPending;
   const { data: amendments = [] } = useOfferAmendments(offer.id);
   const { data: claims = [] } = useOfferClaims(offer.id);
   const openClaim = claims.find((c) => c.status === "OPEN") ?? claims.find((c) => c.status === "JUDGED");
@@ -36,6 +35,7 @@ export function OfferCard({ offer }: { offer: OfferView }) {
   const [urls, setUrls] = useState("https://example.com/proof");
   const [response, setResponse] = useState("");
   const [busy, setBusy] = useState(false);
+  const aiBusy = busy || writes.judge.isPending || writes.judgeAppeal.isPending;
 
   const canAccept = isIntern && !offer.accepted && !offer.closed;
   const canLeave = isIntern && offer.accepted && !offer.intern_left && !offer.has_open_claim && !offer.closed;
