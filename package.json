@@ -1,0 +1,15 @@
+{
+  "name": "offer-lock",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "lint": "npm run lint --prefix frontend",
+    "typecheck": "npm run typecheck --prefix frontend",
+    "test": "npm run test --prefix frontend",
+    "check": "npm run check --prefix frontend",
+    "test:contract": "python -m pytest tests/direct/test_offer_lock.py",
+    "install:frontend": "npm install --prefix frontend"
+  }
+}
