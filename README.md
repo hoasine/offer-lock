@@ -8,6 +8,7 @@
 |---|
 | **Accept pins a version. Material amends need their own collateral. AI judges public evidence.** |
 
+[![Live App](https://img.shields.io/badge/Live-offer--lock.vercel.app-0f172a?style=for-the-badge&logo=vercel)](https://offer-lock.vercel.app)
 [![Contract](https://img.shields.io/badge/Contract-GenLayer_Python-1f6feb?style=for-the-badge)](#core-contract-api)
 [![Frontend](https://img.shields.io/badge/Frontend-Next.js_+_TypeScript-111827?style=for-the-badge)](#project-structure)
 [![Network](https://img.shields.io/badge/Network-GenLayer_Studionet-16a34a?style=for-the-badge)](#environment-variables)
@@ -117,8 +118,9 @@ Deploy contract first, then update `NEXT_PUBLIC_CONTRACT_ADDRESS`.
 
 ## Links
 
-- Local app: [http://localhost:3005](http://localhost:3005)
+- Live app: [https://offer-lock.vercel.app](https://offer-lock.vercel.app)
 - GitHub: [https://github.com/hoasine/offer-lock](https://github.com/hoasine/offer-lock)
+- Local app: [http://localhost:3005](http://localhost:3005)
 - Studionet contract: `0xDE1DacB0dd61a8Ad37bE71D18E87DBE31da37dda`
 
 ## Disclaimer
