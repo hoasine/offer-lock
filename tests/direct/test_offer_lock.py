@@ -127,6 +127,28 @@ def _expire_appeal(contract, claim_id: int = 0):
     contract.claims[claim_id].appeal_deadline_at = contract.claims[claim_id].judged_at
 
 
+def _judge_breach(contract, direct_vm, claim_id: int = 0):
+    _expire_response(contract, claim_id)
+    direct_vm.clear_mocks()
+    direct_vm.mock_web(r".*", _web("Schedule shows 40 hours, not the 20 hours in the offer."))
+    direct_vm.mock_llm(r".*", _verdict("BREACH"))
+    contract.judge_claim(claim_id)
+
+
+def _expire_custody_windows(contract, offer_id: int = 0):
+    offer = contract.get_offer(offer_id)
+    contract.offers[offer_id].breach_deadline_at = offer["accepted_at"]
+    for i in range(int(offer["amendment_count"])):
+        contract.amendments[i].challenge_deadline = contract.amendments[i].created_at
+
+
+def _assert_release_paths_locked(contract, match: str = "open or unpaid"):
+    with pytest.raises(Exception, match=match):
+        contract.release_performance_bond(0)
+    with pytest.raises(Exception, match=match):
+        contract.close_offer(0)
+
+
 class TestPublishAndAccept:
     def test_publish_splits_base_and_performance_bond(self, contract, direct_bob):
         _publish(contract, direct_bob)
@@ -196,6 +218,22 @@ class TestPublishAndAccept:
         assert offer["pin_version"] == 1
         assert "hours_per_week=20" in offer["pin_snapshot"]
         assert offer["breach_deadline_at"] >= offer["accepted_at"]
+
+    def test_clock_does_not_start_before_accept(self, contract, direct_bob):
+        _publish(contract, direct_bob)
+        offer = contract.get_offer(0)
+        assert offer["accepted"] is False
+        assert offer["accepted_at"] == 0
+        assert offer["breach_deadline_at"] == 0
+        assert offer["pin_version"] == 0
+
+    def test_windows_are_clamped_to_minimum(self, contract, direct_bob):
+        _publish(contract, direct_bob)
+        offer = contract.get_offer(0)
+        cfg = contract.get_protocol_config()
+        assert offer["breach_window_seconds"] >= cfg["min_window"]
+        assert offer["amend_window_seconds"] >= cfg["min_window"]
+        assert cfg["min_window"] >= 3600
 
     def test_stranger_cannot_accept(self, contract, direct_vm, direct_bob, direct_charlie):
         _publish(contract, direct_bob)
@@ -312,6 +350,41 @@ class TestWhoCanClaim:
         contract.leave_offer(0)
         with pytest.raises(Exception):
             _file(contract, "BREACH", 0)
+
+    def test_leave_does_not_skip_bond_release_or_close(self, contract, direct_vm, direct_alice, direct_bob):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        contract.leave_offer(0)
+        direct_vm.sender = direct_alice
+        with pytest.raises(Exception):
+            contract.release_performance_bond(0)
+        with pytest.raises(Exception):
+            contract.close_offer(0)
+        offer = contract.get_offer(0)
+        contract.offers[0].breach_deadline_at = offer["accepted_at"]
+        contract.release_performance_bond(0)
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
+
+    def test_leave_does_not_skip_amendment_window(self, contract, direct_vm, direct_alice, direct_bob):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        direct_vm.sender = direct_alice
+        _amend_hours(contract)
+        direct_vm.sender = direct_bob
+        contract.leave_offer(0)
+        direct_vm.sender = direct_alice
+        with pytest.raises(Exception):
+            contract.release_amendment_collateral(0)
+        with pytest.raises(Exception):
+            contract.close_offer(0)
+        offer = contract.get_offer(0)
+        contract.offers[0].breach_deadline_at = offer["accepted_at"]
+        contract.amendments[0].challenge_deadline = contract.amendments[0].created_at
+        contract.release_amendment_collateral(0)
+        assert contract.get_amendment(0)["collateral_released"] is True
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
 
 
 class TestJudgeDueProcess:
@@ -500,6 +573,106 @@ class TestWindowsAndClose:
         direct_vm.sender = direct_bob
         with pytest.raises(Exception):
             _file(contract, "AMEND", 0)
+
+    def test_cannot_release_or_close_judged_unpaid_claim(self, contract, direct_vm, direct_alice, direct_bob):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        _file(contract, "BREACH", 0)
+        _judge_breach(contract, direct_vm)
+        _expire_custody_windows(contract)
+        offer = contract.get_offer(0)
+        claim = contract.get_claim(0)
+        assert offer["has_open_claim"] is True
+        assert claim["status"] == "JUDGED"
+        assert claim["paid_out"] is False
+        direct_vm.sender = direct_alice
+        _assert_release_paths_locked(contract)
+        _expire_appeal(contract)
+        _assert_release_paths_locked(contract)
+        contract.settle_claim(0)
+        settled_offer = contract.get_offer(0)
+        assert settled_offer["has_open_claim"] is False
+        assert contract.get_claim(0)["paid_out"] is True
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
+
+    def test_cannot_release_or_close_during_open_appeal(self, contract, direct_vm, direct_alice, direct_bob):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        _file(contract, "BREACH", 0)
+        _judge_breach(contract, direct_vm)
+        _expire_custody_windows(contract)
+        direct_vm.sender = direct_alice
+        _payable(contract, "appeal_claim", 0, "Hours were always 20", value=STAKE)
+        assert contract.get_offer(0)["has_open_claim"] is True
+        assert contract.get_claim(0)["appealed"] is True
+        assert contract.get_claim(0)["paid_out"] is False
+        _assert_release_paths_locked(contract)
+        direct_vm.clear_mocks()
+        direct_vm.mock_web(r".*", _web("The intern misunderstood a draft calendar."))
+        direct_vm.mock_llm(r".*", _verdict("UPHOLD"))
+        contract.judge_appeal(0)
+        assert contract.get_offer(0)["has_open_claim"] is False
+        assert contract.get_claim(0)["paid_out"] is True
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
+
+    def test_cannot_release_amendment_or_close_judged_unpaid_claim(
+        self, contract, direct_vm, direct_alice, direct_bob
+    ):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        direct_vm.sender = direct_alice
+        _amend_hours(contract)
+        direct_vm.sender = direct_bob
+        _file(contract, "AMEND", 0)
+        _judge_breach(contract, direct_vm)
+        _expire_custody_windows(contract)
+        claim = contract.get_claim(0)
+        assert contract.get_offer(0)["has_open_claim"] is True
+        assert claim["status"] == "JUDGED"
+        assert claim["paid_out"] is False
+        direct_vm.sender = direct_alice
+        with pytest.raises(Exception, match="open or unpaid"):
+            contract.release_amendment_collateral(0)
+        _assert_release_paths_locked(contract)
+        _expire_appeal(contract)
+        with pytest.raises(Exception, match="open or unpaid"):
+            contract.release_amendment_collateral(0)
+        _assert_release_paths_locked(contract)
+        contract.settle_claim(0)
+        assert contract.get_offer(0)["has_open_claim"] is False
+        assert contract.get_claim(0)["paid_out"] is True
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
+
+    def test_cannot_release_amendment_or_close_during_open_appeal(
+        self, contract, direct_vm, direct_alice, direct_bob
+    ):
+        _publish(contract, direct_bob)
+        _accept(contract, direct_vm, direct_bob)
+        direct_vm.sender = direct_alice
+        _amend_hours(contract)
+        direct_vm.sender = direct_bob
+        _file(contract, "AMEND", 0)
+        _judge_breach(contract, direct_vm)
+        _expire_custody_windows(contract)
+        direct_vm.sender = direct_alice
+        _payable(contract, "appeal_claim", 0, "Hours were always 20", value=STAKE)
+        assert contract.get_offer(0)["has_open_claim"] is True
+        assert contract.get_claim(0)["appealed"] is True
+        assert contract.get_claim(0)["paid_out"] is False
+        with pytest.raises(Exception, match="open or unpaid"):
+            contract.release_amendment_collateral(0)
+        _assert_release_paths_locked(contract)
+        direct_vm.clear_mocks()
+        direct_vm.mock_web(r".*", _web("The intern misunderstood a draft calendar."))
+        direct_vm.mock_llm(r".*", _verdict("UPHOLD"))
+        contract.judge_appeal(0)
+        assert contract.get_offer(0)["has_open_claim"] is False
+        assert contract.get_claim(0)["paid_out"] is True
+        contract.close_offer(0)
+        assert contract.get_offer(0)["closed"] is True
 
     def test_cannot_release_bond_before_window(self, contract, direct_vm, direct_alice, direct_bob):
         _publish(contract, direct_bob)

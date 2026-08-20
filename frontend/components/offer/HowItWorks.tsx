@@ -20,12 +20,12 @@ export function HowItWorks() {
     {
       n: "4",
       title: "Claim with public URLs",
-      body: "One open claim. Evidence hosts are allowlisted. The contract fetches pages. Employer gets 3 days to reply before AI can judge.",
+      body: "One open claim. Evidence hosts are allowlisted. The contract fetches pages. Employer gets 3 days to reply. The caller pays the AI tx — no checker reward.",
     },
     {
       n: "5",
       title: "Item-scoped payout",
-      body: "UPHOLD / BREACH / INCONCLUSIVE. Fetch fail is inconclusive. Base stake never pays a claim. One appeal, then settle.",
+      body: "UPHOLD / BREACH / INCONCLUSIVE with on-chain confidence. Fetch fail is inconclusive. Leave does not skip windows. Disputed pots stay locked until payout. Base stake never pays a claim.",
     },
   ];
 

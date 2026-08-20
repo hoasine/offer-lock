@@ -390,8 +390,11 @@ class OfferLock(gl.Contract):
         return self.claims[claim_id]
 
     def _has_open_windows(self, o: Offer) -> bool:
+        # Judged-but-unpaid claims keep custody locked through settle/appeal.
+        if self._has_unpaid_claim(o):
+            return True
         now = int(self._now_epoch())
-        if int(o.accepted) == 1 and int(o.intern_left) == 0:
+        if int(o.accepted) == 1:
             if int(o.performance_bond_released) == 0 and now < int(o.breach_deadline_at):
                 return True
         for i in range(int(o.amendment_count)):
@@ -403,9 +406,27 @@ class OfferLock(gl.Contract):
                 continue
             if int(a.has_open_claim) == 1:
                 return True
-            if int(o.intern_left) == 0 and now < int(a.challenge_deadline):
+            if now < int(a.challenge_deadline):
                 return True
         return False
+
+    def _has_unpaid_claim(self, o: Offer) -> bool:
+        if int(o.has_open_claim) == 1:
+            return True
+        for i in range(int(o.claim_count)):
+            cid = self.offer_claim_index[self._index_key(o.id, u256(i))]
+            cl = self.claims[cid]
+            if int(cl.paid_out) == 1 or cl.status == "CANCELLED":
+                continue
+            if cl.status in ("OPEN", "JUDGED"):
+                return True
+        return False
+
+    def _assert_no_unpaid_claim(self, o: Offer, action: str) -> None:
+        if self._has_unpaid_claim(o):
+            raise gl.vm.UserError(
+                f"Cannot {action} while a claim is open or unpaid"
+            )
 
     def _offer_to_dict(self, o: Offer) -> dict:
         return {
@@ -616,6 +637,10 @@ Rules:
         cl.stake = u256(0)
         cl.item_stake = u256(0)
         cl.appeal_stake = u256(0)
+        o.has_open_claim = u256(0)
+        o.open_claim_id = u256(0)
+        self.claims[cl.id] = cl
+        self.offers[o.id] = o
 
     def _record_verdict(self, o: Offer, cl: Claim, verdict: str, silent: bool) -> None:
         if verdict == "BREACH":
@@ -1078,8 +1103,6 @@ Rules:
         cl.status = "JUDGED"
         cl.appeal_deadline_at = u256(int(cl.judged_at) + int(self.appeal_window))
         self._record_verdict(o, cl, verdict, silent)
-        o.has_open_claim = u256(0)
-        o.open_claim_id = u256(0)
         o.status = "JUDGED"
         self.claims[cl.id] = cl
         self.offers[o.id] = o
@@ -1163,10 +1186,9 @@ Rules:
             raise gl.vm.UserError("Only the employer can release the performance bond")
         if int(o.performance_bond_released) == 1:
             raise gl.vm.UserError("Performance bond already released")
-        if int(o.has_open_claim) == 1:
-            raise gl.vm.UserError("Cannot release while a claim is open")
+        self._assert_no_unpaid_claim(o, "release")
         now = int(self._now_epoch())
-        if int(o.intern_left) != 1 and now < int(o.breach_deadline_at):
+        if now < int(o.breach_deadline_at):
             raise gl.vm.UserError("Breach window still open")
         amount = o.performance_bond
         o.performance_bond = u256(0)
@@ -1183,10 +1205,11 @@ Rules:
             raise gl.vm.UserError("Only the employer can release amendment collateral")
         if int(a.collateral_released) == 1:
             raise gl.vm.UserError("Collateral already released")
+        self._assert_no_unpaid_claim(o, "release")
         if int(a.has_open_claim) == 1:
             raise gl.vm.UserError("Amendment has an open claim")
         now = int(self._now_epoch())
-        if int(o.intern_left) != 1 and now < int(a.challenge_deadline):
+        if now < int(a.challenge_deadline):
             raise gl.vm.UserError("Challenge window still open")
         amount = a.stake
         a.stake = u256(0)
@@ -1202,8 +1225,7 @@ Rules:
             raise gl.vm.UserError("Offer already closed")
         if not self._same_address(gl.message.sender_address, o.employer):
             raise gl.vm.UserError("Only the employer can close")
-        if int(o.has_open_claim) == 1:
-            raise gl.vm.UserError("Cannot close while a claim is open")
+        self._assert_no_unpaid_claim(o, "close")
         if self._has_open_windows(o):
             raise gl.vm.UserError("Cannot close while a claim window is still open")
         if int(o.performance_bond_released) == 0 and int(o.performance_bond) > 0:

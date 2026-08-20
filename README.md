@@ -35,6 +35,7 @@ This means internships cannot silently change after acceptance, and a claim cann
 - **Allowlisted evidence:** the contract fetches public URLs; pasted HTML is not the source of truth
 - **Due process before AI:** employer gets a reply window; fetch fail is `INCONCLUSIVE`, never a fake win
 - **Item-scoped liability:** claims settle the disputed bag only; base stake returns on a clean close
+- **Locked until paid:** a judged claim stays in custody through appeal; the employer cannot release the disputed bond or close until payout
 - **Immutable first verdict:** one appeal stores a separate `appeal_verdict`; the original judgment is not rewritten
 
 ## Protocol Flow
@@ -44,16 +45,18 @@ This means internships cannot silently change after acceptance, and a claim cann
 3. **Employer may amend** — material change creates a new version + item collateral + claim window
 4. **Intern files one claim** (`BREACH` of pinned terms or `AMEND` of a material change) with allowlisted URLs
 5. **Employer may respond** during a 3-day window; `judge_claim` waits for a reply or expiry
-6. **AI + validators bind** `verdict` and `confidence`; caller pays gas / AI tx (no checker reward)
-7. **One appeal, then settle** — item pots pay out; base stake is untouched
-8. **Employer releases unused item collateral** after windows, then `close_offer`
+6. **AI + validators bind** `verdict` and `confidence`; the caller pays gas / AI tx (no checker reward). Intern leave does not skip remaining windows.
+7. **One appeal, then settle** — disputed pots stay locked until payout; base stake is untouched
+8. **Employer releases unused item collateral** only after windows and unpaid claims are cleared, then `close_offer`
 
 ## Risk Controls
 
 | Risk | Mitigation in OfferLock |
 |------|-------------------------|
 | Amend overwrites the accepted offer | Pin snapshot + version at `accept_offer` |
-| Publish A, accept, switch to B, withdraw | No close / release while windows or claims are open |
+| Publish A, accept, switch to B, withdraw | No close / release while windows or claims are open or unpaid |
+| Judged claim still unpaid | Lock stays until `settle_claim` / `judge_appeal` payout; appeal does not unlock |
+| Intern leaves, employer yanks collateral | Leave blocks new claims; windows still run; release only after expiry |
 | Anyone files a claim | Named intern who accepted; leave blocks new claims |
 | Self-deal | Employer cannot name themselves or file the claim |
 | Cheap claim vs a large pot | Claim stake ≥ item collateral; base pot isolated |
@@ -76,12 +79,12 @@ This means internships cannot silently change after acceptance, and a claim cann
 | `file_claim` | write (payable) | BREACH or AMEND |
 | `respond_to_claim` | write | Employer reply |
 | `cancel_claim` | write | Intern refund before judge |
-| `judge_claim` | write | AI after reply or window |
+| `judge_claim` | write | AI after reply or window (does not unlock pots) |
 | `appeal_claim` | write (payable) | One appeal by the losing side |
-| `judge_appeal` / `settle_claim` | write | Final payout; first verdict stays on-chain |
-| `release_performance_bond` | write | After breach window |
-| `release_amendment_collateral` | write | After amend window |
-| `close_offer` | write | Return base stake when clean |
+| `judge_appeal` / `settle_claim` | write | Final payout; lock clears here; first verdict stays on-chain |
+| `release_performance_bond` | write | After breach window; unpaid claims block |
+| `release_amendment_collateral` | write | After amend window; unpaid claims block |
+| `close_offer` | write | Return base stake when clean; unpaid claims block |
 | `get_offer` / `get_all_offers` | view | Query offer state (includes pin fields) |
 | `get_fairness_ledger` | view | Public verdict counts |
 
@@ -121,7 +124,7 @@ Deploy contract first, then update `NEXT_PUBLIC_CONTRACT_ADDRESS`.
 - Live app: [https://offer-lock.vercel.app](https://offer-lock.vercel.app)
 - GitHub: [https://github.com/hoasine/offer-lock](https://github.com/hoasine/offer-lock)
 - Local app: [http://localhost:3005](http://localhost:3005)
-- Studionet contract: `0xDE1DacB0dd61a8Ad37bE71D18E87DBE31da37dda`
+- Studionet contract: `0x5f807814c8F780090ceDa63DD6fA132fd986daa7`
 
 ## Disclaimer
 
